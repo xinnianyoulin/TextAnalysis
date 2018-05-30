@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>评论文本情感分析</title>
+    <!-- 引入样式 -->
+    <link rel="stylesheet" href="scripts/lib/element-ui-index.css">
+    <style>
+        html,
+        body,
+        #app {
+            width: 666px;
+            margin: 0 auto;
+        }
+        
+        #app {
+            padding-top: 160px;
+            box-sizing: border-box;
+        }
+        
+        .title {
+            width: 666px;
+            text-align: center;
+            margin: 20px auto;
+        }
+        
+        .search {
+            width: 666px;
+            margin: 0 auto;
+        }
+        
+        .result-card {
+            margin: 40px auto;
+        }
+        
+        .text.item {
+            line-height: 28px;
+        }
+        
+        .legend {
+            position: relative;
+            top: 2px;
+            display: inline-block;
+            width: 30px;
+            height: 15px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div class="title">
+            <span style="font-size:26px;color:#409EFF;display: inline-block;transform: rotate(-4deg);">文本</span>
+            <!-- <span style="font-size:30px;color:#909399"></span> -->
+            <span style="font-size:48px;color:#F56C6C;">情感</span>
+            <span style="font-size:30px;color:#E6A23C;display: inline-block;transform: rotate(4deg);">倾向</span>
+            <span style="font-size:35px;color:#67C23A;display: inline-block;transform: rotate(10deg);">分析</span>
+        </div>
+        <div class="search">
+            <el-input placeholder="请输入分析文本" v-model="keyword" clearable class="input-with-select">
+                <el-button slot="append" icon="el-icon-search" @click="AnalysisWord()">搜索</el-button>
+            </el-input>
+        </div>
+        <div class="result-card" v-if="result">
+            <el-card class="box-card">
+                <div slot="header" class="clearfix">
+                    <span>Text : {{curText}}</span>
+                </div>
+                <div class="slice-tag" style="margin-bottom:15px">
+                    <el-tag v-for="(tag,index) in result" :key="index" :type="{1:'success',2:'info',3:'warning',4:'danger',5:''}[Math.ceil(Math.random()*5)]" style="margin:0 8px 8px 0;">{{tag}}</el-tag>
+                </div>
+                <div class="flow" style="width:126px;margin:15px auto">
+                    <el-progress type="circle" :percentage="percent" :color="emotion=='pos' ? '#67C23A' : emotion=='normal' ? '#E6A23C':'#F56C6C'"></el-progress>
+                </div>
+            </el-card>
+            <el-card style="margin-top:25px;" class="box-card">
+                <div slot="header" class="clearfix">
+                    <span>情感指数</span>
+                </div>
+                <div class="text item">情感积极 : <span class="legend" style="background-color:#67C23A"></span></div>
+                <div class="text item">情感消极 : <span class="legend" style="background-color:#F56C6C"></span></div>
+                <div class="text item">情感中性 : <span class="legend" style="background-color:#E5E9F2"></span></div>
+            </el-card>
+        </div>
+    </div>
+    <script src="scripts/lib/vue.min.js"></script>
+    <!-- 引入组件库 -->
+    <script src="scripts/lib/element-ui-index.js"></script>
+    <script src="scripts/lib/axios.min.js"></script>
+    <script src="scripts/require.js"></script>
+    <script src="scripts/main.js"></script>
+    <script>
+        Vue.prototype.$Axios = axios;
+
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    emotionDictionaly: null,
+                    keyword: '',
+                    curText: '',
+                    loading: null,
+                    result: null,
+                    percent: 0,
+                    emotion: 'normal'
+                }
+            },
+            mounted() {
+                this.loading = this.$loading({
+                    lock: true,
+                    text: "正在初始化,请稍等~",
+                    spinner: "el-icon-loading",
+                    background: "rgba(0, 0, 0, 0.7)"
+                });
+
+                let timer = setInterval(() => {
+                    if (this.$jiebaCut) {
+                        clearInterval(timer);
+                        this.loading.close();
+                        setTimeout(() => {
+                            this.$message('分词库加载完成');
+                        }, 3000);
+                        this.loadDictionaly();
+                    }
+                }, 100);
+            },
+            methods: {
+                AnalysisWord() {
+                    console.log(this.keyword);
+                    if (!this.$jiebaCut) {
+                        this.$message('分词库未加载完成，请稍等');
+                    }
+                    // console.log(this.$jiebaCut('今天天气很不好'));
+                    let sliceArr = this.$jiebaCut(this.keyword);
+                    console.log(sliceArr);
+
+                    let score = 0; // 基础分数
+                    // 分词处理
+                    let resArr = [];
+                    // 分组计算分数
+                    let scoreArr = [];
+                    for (let i = 0; i < sliceArr.length; i++) {
+                        let c = sliceArr[i];
+
+                        // 词库分析
+                        let res = this.ComparedWord(c);
+                        // console.log(res);
+                        // 存入结果数组
+                        resArr.push(res);
+                        // 不存在分析结果，跳过不处理
+                        if (res.type == 'noFound') {
+                            // 如果最后一个noFound 计算分数
+                            if (i == sliceArr.length - 1) {
+                                scoreArr.push(score);
+                            }
+                            continue;
+                        }
+                        // 如果是标点符号，分组计算分数
+                        if (res.type == "mark") {
+                            scoreArr.push(score);
+                            score = 0;
+                        }
+                        // console.log(resArr);
+
+                        // console.log(resArr[i - 1], i);
+
+                        // 当前结果属于积极 评价/情感词
+                        if (res.type == "pos_emotion" || res.type == "pos_evaluate") {
+                            score = score + res.score;
+                            // 两种情况：
+                            // 1. 非常 不 好吃
+                            // 2. 不是 很 好吃
+                            // 需要极性反转
+                            // 是否需要极性反转 前一个或者前两个
+                            if ((i - 1 >= 0 && resArr[i - 1].type && resArr[i - 1].type == 'neg_degree') || (i - 2 >= 0 && resArr[i - 2].type && resArr[i - 2].type == 'neg_degree')) {
+                                score = score * (-1);
+                                if ((i - 1 >= 0 && resArr[i - 1].type && resArr[i - 1].type == 'neg_degree') && (i - 2 >= 0 && resArr[i - 2].type && resArr[i - 2].type == 'neg_degree')) {
+                                    score = score * (-1);
+                                }
+                            }
+                            // 当前结果属于消极 评价/情感词
+                        } else if (res.type == "neg_emotion" || res.type == "neg_evaluate") {
+                            score = score + res.score;
+                            // 1. 不是 不好
+                            // 2. 不是 很 不好
+                            // 极性反转
+                            // 是否需要极性反转 前一个或者前两个
+                            if ((i - 1 >= 0 && resArr[i - 1].type && resArr[i - 1].type == 'neg_degree') || (i - 2 >= 0 && resArr[i - 2].type && resArr[i - 2].type == 'neg_degree')) {
+                                score = score * (-1);
+                                if ((i - 1 >= 0 && resArr[i - 1].type && resArr[i - 1].type == 'neg_degree') && (i - 2 >= 0 && resArr[i - 2].type && resArr[i - 2].type == 'neg_degree')) {
+                                    score = score * (-1);
+                                }
+                            }
+                        }
+                        // 当前结果属于程度词  相乘 #赫夫曼二叉树， 加权路径最小
+                        if (i - 1 >= 0) {
+                            if (resArr[i - 1].type == 'most_degree' || (i - 2 >= 0 && resArr[i - 2].type == 'most_degree')) {
+                                score = score * 3;
+                            } else if (resArr[i - 1].type == 'very_degree' || (i - 2 >= 0 && resArr[i - 2].type == 'very_degree')) {
+                                score = score * 2.5;
+                            } else if (resArr[i - 1].type == 'more_degree' || (i - 2 >= 0 && resArr[i - 2].type == 'more_degree')) {
+                                score = score * 2;
+                            } else if (resArr[i - 1].type == 'ish_degree' || (i - 2 >= 0 && resArr[i - 2].type == 'ish_degree')) {
+                                score = score * 1.5;
+                            } else if (resArr[i - 1].type == 'least_degree' || (i - 2 >= 0 && resArr[i - 2].type == 'least_degree')) {
+                                score = score * 1.1;
+                            }
+                        }
+                        // 如果是最后一组
+                        if (i == sliceArr.length - 1) {
+                            scoreArr.push(score);
+                        }
+                        // console.log(score);
+                    }
+                    console.log(scoreArr);
+                    let lastScore = 0;
+                    for (let i = 0; i < scoreArr.length; i++) {
+                        lastScore += scoreArr[i]
+                    }
+
+                    console.log(resArr);
+
+                    // score = Math.pow(-1, n) * score;
+                    console.log('结果' + lastScore);
+                    if (lastScore > 0) {
+                        // this.percent = ((1 - (1 / lastScore)) * 50 + 50).toFixed(2);
+                        this.percent = ((lastScore / (lastScore + 1)) * 100).toFixed(2);
+                        this.emotion = 'pos';
+                        // this.percent = ((1 / lastScore) * 50 + 50).toFixed(2);
+                    } else if (lastScore == 0) {
+                        // this.percent = 50.00;
+                        this.percent = '00.00';
+                        this.emotion = 'normal';
+                    } else {
+                        // this.percent = ((1 - (1 / Math.abs(lastScore))) * 50).toFixed(2);
+                        // this.percent = ((1 / Math.abs(lastScore)) * 50).toFixed(2);
+                        this.percent = ((Math.abs(lastScore) / (Math.abs(lastScore) + 1)) * 100).toFixed(2);
+                        this.emotion = 'neg';
+
+                    }
+                    this.result = sliceArr;
+                    this.curText = this.keyword;
+                },
+                loadDictionaly() {
+                    this.$Axios
+                        .get("./dict/emotion.json", {
+                            params: {
+                                v: new Date().getTime()
+                            }
+                        })
+                        .then(d => {
+                            // console.log(d);
+                            this.emotionDictionaly = d.data.data;
+                            // console.log(this.emotionDictionaly);
+                            this.$message('情感词典加载完成', {
+                                type: 'success'
+                            });
+                        });
+                },
+                ComparedWord(word) {
+                    // 正则匹配中文
+                    let reg = /[\u4e00-\u9fa5]/;
+                    // 不是中文
+                    if (!reg.test(word)) {
+                        return {
+                            word: word,
+                            type: 'mark'
+                        };
+                    }
+                    // 遍历词典 一共10小本
+                    let obj = {}; // 结果对象
+                    if (!this.emotionDictionaly) {
+                        this.$message("情感词典还未加载完成,请重试");
+                        return 0;
+                    }
+                    // 大词典 this.emotionDictionaly
+                    let len = this.emotionDictionaly.length;
+                    for (let i = 0; i < len; i++) {
+                        let dArr = this.emotionDictionaly[i]; // 当前词典
+                        // 遍历小词典
+                        for (let j = 0; j < dArr.degree_data.length; j++) {
+                            let c = dArr.degree_data[j];
+
+                            if (c == word) {
+                                return {
+                                    word: word,
+                                    type: dArr.desc,
+                                    score: dArr.value
+                                };
+                            }
+                        }
+                    }
+                    return {
+                        word: word,
+                        type: 'noFound'
+                    };
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,13 @@
+本程序为项目单条数据分析展示系统
+
+异步请求了本地文件，因此需要在服务器模式下运行
+
+如果已经有了node环境：
+
+npm install live-server -g
+
+在项目根目录（index.html所在目录）
+
+live-server
+
+即可查看结果
